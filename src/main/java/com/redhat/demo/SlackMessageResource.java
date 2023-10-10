@@ -2,6 +2,7 @@ package com.redhat.demo;
 
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
+import java.net.URI;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Map.Entry;
@@ -13,7 +14,10 @@ import javax.ws.rs.POST;
 import javax.ws.rs.Path;
 import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
+import javax.ws.rs.core.Context;
 import javax.ws.rs.core.MediaType;
+import javax.ws.rs.core.Response;
+import javax.ws.rs.core.UriInfo;
 
 import org.eclipse.microprofile.rest.client.inject.RestClient;
 import org.jboss.logging.Logger;
@@ -39,7 +43,7 @@ public class SlackMessageResource {
 
     @GET
     @Produces(MediaType.TEXT_HTML)
-    public InputStream releaseApplication(@QueryParam("application") String application, @QueryParam("image") String image, @QueryParam("tag") String tag, @QueryParam("cluster") String cluster ) {
+    public Response releaseApplication(@Context UriInfo uriInfo, @QueryParam("application") String application, @QueryParam("image") String image, @QueryParam("tag") String tag, @QueryParam("cluster") String cluster ) {
         PushToProdPipeline msg = new PushToProdPipeline();
         msg.application = application;
         msg.imageURL = image;
@@ -49,7 +53,21 @@ public class SlackMessageResource {
         msg.gitURL = GIT_URL;
         msg.gitSourceURL = GIT_SOURCE_URL + msg.application;
 
-        pipelineService.startPipeline(msg);
+        try {
+            pipelineService.startPipeline(msg);
+        } catch (Throwable t) {
+            LOG.error("Unexpected error occurred", t);
+            StringBuffer sb = new StringBuffer();
+            sb.append("<html>");
+            sb.append("<head><title>Starting Pipeline</title></head>");
+            sb.append("<body>");
+            sb.append("<span>Unexpected error occurred for " + application + " using image " + image + ":" + image + " in cluster " + cluster + "</span>");
+            sb.append("<span>Error Message: " + t.getMessage() + "</span>");
+            sb.append("</body>");
+            sb.append("</html>");
+
+            return Response.status(500).entity(new ByteArrayInputStream(sb.toString().getBytes())).build();
+        }
         LOG.info("Start message sent to trigger: "+msg.toString());
 
         StringBuffer sb = new StringBuffer();
@@ -60,7 +78,7 @@ public class SlackMessageResource {
         sb.append("</body>");
         sb.append("</html>");
 
-        return new ByteArrayInputStream(sb.toString().getBytes());
+        return Response.seeOther(URI.create("https://console-openshift-console.apps.home.ocplab.com/pipelines/ns/product-catalog-cicd")).entity(new ByteArrayInputStream(sb.toString().getBytes())).build();
     }
 
     @POST
